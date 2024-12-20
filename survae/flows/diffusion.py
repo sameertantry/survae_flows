@@ -142,7 +142,7 @@ class UNet(nn.Module):
         return self.up(self.down(x, t), t)
 
 class Diffusion(Distribution):
-    def __init__(self, base_dist, model, transforms=[], transforms_schedule=[], num_timesteps=100, beta_start=0.0001, beta_end=0.02):
+    def __init__(self, base_dist, model, device, transforms=[], transforms_schedule=[], num_timesteps=100, beta_start=0.0001, beta_end=0.02):
         super().__init__()
 
         # Flow initialization
@@ -161,7 +161,7 @@ class Diffusion(Distribution):
 
         # Diffusion initialization
         self.num_timesteps = num_timesteps
-        self.betas = torch.linspace(beta_start, beta_end, num_timesteps, dtype=torch.float32)
+        self.betas = torch.linspace(beta_start, beta_end, num_timesteps, dtype=torch.float32, device=self.device)
         self.alphas = 1 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, axis=0)
         self.alphas_cumprod_prev = F.pad(self.alphas_cumprod[:-1], (1,0), value=1.)
@@ -226,20 +226,20 @@ class Diffusion(Distribution):
     @torch.no_grad()
     def sample(self, num_samples):
         self.model.eval()
-        z = self.base_dist.sample(num_samples)
+        z = self.base_dist.sample(num_samples).to(self.device)
         timesteps = list(range(self.num_timesteps))[::-1]
         for t in tqdm(timesteps):
-            t = torch.from_numpy(np.repeat(t,  num_samples)).long()
+            t = torch.from_numpy(np.repeat(t,  num_samples)).long().to(self.device)
             residual = self.model(z, t)
             z = self.step(residual, t[0], z)
         return z
     
     def loss(self, batch):
         timesteps = torch.randint(
-            0, self.num_timesteps, (batch.shape[0],)
+            0, self.num_timesteps, (batch.shape[0],), device=self.device
         ).long()
 
-        noise = torch.randn(batch.shape)
+        noise = torch.randn(batch.shape, device=self.device)
         noisy = self.add_noise(batch, noise, timesteps)
         noise_pred = self.model(noisy, timesteps)
         loss = F.mse_loss(noise_pred, noise)
